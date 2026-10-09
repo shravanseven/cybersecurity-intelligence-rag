@@ -1,0 +1,2571 @@
+# Cybersecurity Intelligence RAG System
+
+## Project Specification, Architecture & Development Plan
+
+**Project Type:** Personal portfolio / learning project
+**Primary Domain:** Cybersecurity Intelligence + Retrieval-Augmented Generation
+**Primary Goal:** Build a real, evaluated RAG system that can retrieve, connect, and explain cybersecurity intelligence from multiple authoritative sources.
+
+---
+
+# 1. Project Vision
+
+The project is a **Cybersecurity Intelligence RAG System** that allows a user to ask natural-language questions about vulnerabilities, affected products, exploitation status, mitigations, and related cybersecurity information.
+
+The system will retrieve relevant evidence from multiple cybersecurity sources and use a locally hosted LLM to produce a **grounded, citation-backed answer**.
+
+The core philosophy is:
+
+> **Sources are the source of truth. The LLM is the reasoning and explanation layer.**
+
+The LLM should not be trusted to independently know whether a vulnerability exists, which products are affected, or what the current mitigation is.
+
+Instead:
+
+```text
+Cybersecurity Sources
+        ↓
+Data Ingestion
+        ↓
+Normalization
+        ↓
+Chunking / Structuring
+        ↓
+Embeddings
+        ↓
+ChromaDB
+        ↓
+Retrieval
+        ↓
+Relevant Evidence
+        ↓
+Ollama LLM
+        ↓
+Grounded Answer + Citations
+```
+
+The project will then evolve this baseline through experiments and evaluation.
+
+---
+
+# 2. Problem Statement
+
+Cybersecurity information is fragmented across different sources.
+
+A single vulnerability may have:
+
+* a CVE record
+* severity information
+* affected products
+* CWE information
+* vendor advisories
+* remediation guidance
+* exploitation information
+* inclusion in CISA's KEV catalog
+* references to additional security research
+
+A security analyst therefore often needs to consult multiple sources to answer a seemingly simple question.
+
+For example:
+
+> "What is CVE-X, which products are affected, is it known to be exploited, and what mitigation is recommended?"
+
+The objective of this project is to create a system that can retrieve the relevant evidence from these sources and synthesize it into one understandable answer.
+
+---
+
+# 3. What This Project Is NOT
+
+This distinction is important because it prevents scope explosion.
+
+The project is **not**:
+
+* a complete SIEM
+* an intrusion detection system
+* a vulnerability scanner
+* an automated penetration-testing tool
+* an exploit-generation system
+* a commercial threat-intelligence platform
+* a fully autonomous security agent
+* a replacement for professional security analysts
+
+It is primarily a:
+
+> **Cybersecurity information retrieval, synthesis, and question-answering system.**
+
+---
+
+# 4. Intelligence Sources
+
+The initial system will work with three major categories.
+
+## 4.1 CVE / Vulnerability Records
+
+Primary source:
+
+**NVD — National Vulnerability Database**
+
+NVD provides structured vulnerability information including CVE identifiers, descriptions, references, CVSS information, CWE information, and affected software/configuration information. Its current documentation identifies the 2.0 APIs as the preferred API approach.
+
+Example conceptual record:
+
+```text
+CVE ID
+Description
+Published Date
+Last Modified
+CVSS
+CWE
+Affected Products
+References
+```
+
+This information is highly structured.
+
+---
+
+## 4.2 Known Exploited Vulnerabilities
+
+Primary source:
+
+**CISA Known Exploited Vulnerabilities (KEV) Catalog**
+
+The KEV catalog is particularly useful because it provides information about vulnerabilities that CISA identifies as having evidence of exploitation.
+
+This introduces an important intelligence dimension:
+
+```text
+CVE exists
+        ↓
+CVE has severity
+        ↓
+CVE may affect product X
+        ↓
+CVE may also be known to be exploited
+```
+
+This allows the system to answer questions that go beyond simply retrieving a CVE description.
+
+---
+
+## 4.3 Security Advisories
+
+The system will also ingest security advisories from authoritative vendors or security organizations.
+
+These are important because they contain information that structured CVE records may not fully capture:
+
+* affected versions
+* vendor-specific impact
+* remediation
+* workarounds
+* upgrade recommendations
+* product-specific context
+* additional technical explanation
+
+These documents will typically contain considerably more natural language than CVE records.
+
+---
+
+# 5. Why Three Data Types?
+
+We are intentionally **not creating three independent RAG systems**.
+
+Instead, the architecture will have a common ingestion and retrieval pipeline.
+
+Conceptually:
+
+```text
+                ┌── CVE Records
+                │
+Sources ────────┼── KEV Records
+                │
+                └── Security Advisories
+                        ↓
+                Normalization Layer
+                        ↓
+                Common Internal Model
+                        ↓
+             Structured + Textual Data
+                        ↓
+                  Retrieval Layer
+```
+
+The complexity comes from the differences between the sources.
+
+For example:
+
+### CVE
+
+Highly structured.
+
+```json
+{
+  "cve_id": "...",
+  "description": "...",
+  "cvss": 9.8,
+  "published": "...",
+  "references": [...]
+}
+```
+
+### Advisory
+
+More narrative.
+
+```text
+Vendor Security Advisory
+
+A vulnerability was discovered in...
+
+Affected versions:
+...
+
+Customers should upgrade to...
+```
+
+### KEV
+
+Structured intelligence about exploitation.
+
+```text
+CVE ID
+Vendor
+Product
+Date Added
+Due Date
+Required Action
+```
+
+The project will therefore learn an important RAG engineering lesson:
+
+> **Not every piece of information should be represented or retrieved in exactly the same way.**
+
+---
+
+# 6. Core Use Cases
+
+The system should eventually support the following categories.
+
+## 6.1 Vulnerability Lookup
+
+Example:
+
+> What is CVE-XXXX-XXXX?
+
+Expected answer:
+
+* vulnerability description
+* severity
+* affected products
+* relevant evidence
+* sources
+
+---
+
+## 6.2 Affected Product Queries
+
+Example:
+
+> Which versions of Product X are affected by CVE-XXXX?
+
+The answer should rely on structured vulnerability information where possible.
+
+---
+
+## 6.3 Mitigation Queries
+
+Example:
+
+> What mitigation is recommended for CVE-XXXX?
+
+The system should prioritize advisory/remediation information rather than hallucinating a generic recommendation.
+
+---
+
+## 6.4 Exploitation Status
+
+Example:
+
+> Is CVE-XXXX known to be exploited?
+
+The system should determine whether the vulnerability appears in the KEV data.
+
+---
+
+## 6.5 Cross-Source Questions
+
+Example:
+
+> What does the vendor recommend for CVE-X and is it listed in the KEV catalog?
+
+This is an important capability because the answer requires combining multiple sources.
+
+---
+
+## 6.6 Analytical Queries
+
+Example:
+
+> Show me critical vulnerabilities affecting Product X that are also known to be exploited.
+
+This is where structured filtering becomes important.
+
+The system should eventually be able to combine:
+
+```text
+Product = X
+AND
+Severity = Critical
+AND
+KEV = True
+```
+
+rather than trying to solve everything through semantic similarity.
+
+---
+
+## 6.7 Comparison
+
+Example:
+
+> Compare CVE-X and CVE-Y in terms of severity, affected products and exploitation status.
+
+This requires retrieving multiple pieces of evidence.
+
+---
+
+## 6.8 Insufficient-Evidence Questions
+
+Example:
+
+> Which threat actor definitely exploited CVE-X?
+
+If the indexed sources do not establish this, the system should say that sufficient evidence was not found.
+
+This is an important part of the project.
+
+The goal is not:
+
+> "Always generate an answer."
+
+The goal is:
+
+> **"Generate an answer when sufficient evidence exists."**
+
+---
+
+# 7. RAG Architecture
+
+## 7.1 Initial Architecture
+
+The first implementation will deliberately be simple.
+
+```text
+                    ┌────────────────────┐
+                    │   User Interface   │
+                    └─────────┬──────────┘
+                              │
+                              ▼
+                    ┌────────────────────┐
+                    │      FastAPI       │
+                    └─────────┬──────────┘
+                              │
+                              ▼
+                       User Question
+                              │
+                              ▼
+                    ┌────────────────────┐
+                    │ Query Embedding    │
+                    └─────────┬──────────┘
+                              │
+                              ▼
+                    ┌────────────────────┐
+                    │     ChromaDB       │
+                    │ Vector Retrieval   │
+                    └─────────┬──────────┘
+                              │
+                              ▼
+                       Top-K Chunks
+                              │
+                              ▼
+                    ┌────────────────────┐
+                    │  Context Builder   │
+                    └─────────┬──────────┘
+                              │
+                              ▼
+                    ┌────────────────────┐
+                    │      Ollama        │
+                    │       LLM          │
+                    └─────────┬──────────┘
+                              │
+                              ▼
+                  Answer + Supporting Sources
+```
+
+This is **Version 1**.
+
+We will not begin with hybrid search, rerankers, agents, graph databases, or complicated orchestration.
+
+---
+
+# 8. RAG Pipeline
+
+The complete pipeline will eventually be:
+
+```text
+              DATA INGESTION
+                    ↓
+             SOURCE PARSING
+                    ↓
+             NORMALIZATION
+                    ↓
+           STRUCTURED STORAGE
+                    +
+              TEXT CREATION
+                    ↓
+               CHUNKING
+                    ↓
+              EMBEDDINGS
+                    ↓
+               CHROMADB
+                    ↓
+          ┌───────────────────┐
+          │      QUERY        │
+          └─────────┬─────────┘
+                    ↓
+             QUERY EMBEDDING
+                    ↓
+              RETRIEVAL
+                    ↓
+           OPTIONAL FILTERING
+                    ↓
+             OPTIONAL KEYWORD
+                    ↓
+              RERANKING
+                    ↓
+              TOP CONTEXT
+                    ↓
+               OLLAMA
+                    ↓
+           GROUNDED ANSWER
+                    ↓
+              CITATIONS
+```
+
+But the components after basic retrieval will be introduced incrementally.
+
+---
+
+# 9. Retrieval Evolution
+
+This is one of the most important parts of the project.
+
+We will deliberately evolve retrieval instead of implementing everything immediately.
+
+## V1 — Dense Retrieval
+
+```text
+Query
+ ↓
+Embedding
+ ↓
+ChromaDB
+ ↓
+Top-K
+```
+
+This establishes the baseline.
+
+---
+
+## V2 — Metadata Filtering
+
+Introduce metadata such as:
+
+```text
+source_type
+source_name
+cve_id
+vendor
+product
+published_date
+severity
+kev_status
+```
+
+Now the system can perform queries such as:
+
+```text
+source_type = "KEV"
+```
+
+or:
+
+```text
+severity = "CRITICAL"
+```
+
+---
+
+## V3 — Hybrid Retrieval
+
+Combine:
+
+```text
+Semantic Search
+      +
+Keyword Search
+```
+
+Why?
+
+Semantic search understands meaning.
+
+Keyword search is extremely useful for exact identifiers.
+
+For example:
+
+```text
+CVE-2025-12345
+```
+
+is fundamentally different from:
+
+```text
+How is this vulnerability exploited?
+```
+
+An exact CVE identifier is often better handled through keyword/metadata lookup.
+
+---
+
+## V4 — Reranking
+
+Initial retrieval may produce:
+
+```text
+Top 10 results
+```
+
+A reranker can examine those results more carefully and reorder them.
+
+```text
+Query
+ ↓
+Initial Retrieval
+ ↓
+Top 20
+ ↓
+Reranker
+ ↓
+Best 5
+```
+
+This will only be introduced if evaluation demonstrates that initial retrieval is insufficient.
+
+---
+
+# 10. Important Architectural Principle
+
+One of the project's central lessons will be:
+
+> **Do not use vector search for every problem.**
+
+For example:
+
+### Query
+
+> "What are the critical CVEs affecting Product X in 2025?"
+
+Potential approach:
+
+```text
+Structured filtering
+```
+
+### Query
+
+> "How can this vulnerability be exploited?"
+
+Potential approach:
+
+```text
+Semantic retrieval
+```
+
+### Query
+
+> "Is CVE-X in the KEV catalog?"
+
+Potential approach:
+
+```text
+Exact identifier + structured lookup
+```
+
+The final architecture should therefore become a **retrieval system**, not merely a vector database wrapped around an LLM.
+
+---
+
+# 11. Data Representation
+
+The system will use a hybrid representation.
+
+## 11.1 Structured Representation
+
+Used for information such as:
+
+```text
+CVE ID
+CVSS
+Severity
+Published date
+Modified date
+Vendor
+Product
+KEV status
+KEV date
+```
+
+This enables precise filtering.
+
+---
+
+## 11.2 Text Representation
+
+Used for information such as:
+
+```text
+Description
+Advisory content
+Impact explanation
+Mitigation guidance
+Technical explanation
+```
+
+This information is suitable for semantic retrieval.
+
+---
+
+# 12. Common Internal Document Model
+
+Different sources should be normalized into a common internal representation.
+
+Conceptually:
+
+```text
+Document
+│
+├── document_id
+├── source_type
+├── source_name
+├── title
+├── cve_id
+├── vendor
+├── product
+├── published_date
+├── modified_date
+├── severity
+├── kev_status
+├── url
+├── content
+└── metadata
+```
+
+Not every source will populate every field.
+
+For example:
+
+```text
+CVE record
+    cve_id = CVE-X
+    severity = CRITICAL
+    source_type = cve
+
+KEV record
+    cve_id = CVE-X
+    kev_status = true
+    source_type = kev
+
+Vendor advisory
+    cve_id = CVE-X
+    source_type = advisory
+    content = long textual advisory
+```
+
+This allows the system to recognize that these are different representations of the same vulnerability.
+
+---
+
+# 13. Entity Linking
+
+An important future capability is recognizing relationships.
+
+For example:
+
+```text
+CVE-2025-XXXX
+      │
+      ├── NVD record
+      │
+      ├── Vendor advisory
+      │
+      └── CISA KEV record
+```
+
+The common identifier:
+
+```text
+CVE-2025-XXXX
+```
+
+acts as an entity key.
+
+This is extremely useful because a vulnerability may appear in multiple sources.
+
+---
+
+# 14. Deduplication
+
+The same vulnerability may appear in:
+
+* NVD
+* vendor advisory
+* KEV
+* other security sources
+
+We should not blindly embed identical information multiple times.
+
+The ingestion pipeline will therefore eventually need to answer:
+
+> Is this new information, or another representation of something already stored?
+
+Possible identifiers:
+
+```text
+CVE ID
+source
+document URL
+content hash
+```
+
+Deduplication will initially remain simple.
+
+We do not need a sophisticated entity-resolution system on day one.
+
+---
+
+# 15. Chunking Strategy
+
+Chunking will be treated as an experiment rather than a fixed assumption.
+
+Initial baseline:
+
+```text
+fixed-size chunks
++
+small overlap
+```
+
+For example:
+
+```text
+Chunk size: experiment-dependent
+Overlap: experiment-dependent
+```
+
+We will not assume that one chunk size is optimal.
+
+Later experiments can compare:
+
+```text
+Small chunks
+vs
+Medium chunks
+vs
+Large chunks
+```
+
+and investigate:
+
+* retrieval quality
+* answer quality
+* context size
+* latency
+* irrelevant information
+
+---
+
+# 16. Embeddings
+
+The system will use an embedding model locally where practical.
+
+The embedding model will be treated as an experimental component.
+
+We will record:
+
+```text
+Model
+Embedding dimension
+Latency
+Retrieval quality
+Resource requirements
+```
+
+The first objective is not to find the "best embedding model in the world."
+
+It is to establish a reproducible baseline.
+
+---
+
+# 17. Vector Database
+
+## Chosen Technology: ChromaDB
+
+ChromaDB will be used for the initial vector store.
+
+The reason is primarily learning and project simplicity.
+
+It gives us:
+
+* local development
+* straightforward vector storage
+* metadata support
+* similarity search
+* easy experimentation
+* low infrastructure overhead
+
+Alternatives considered:
+
+### FAISS
+
+Advantages:
+
+* mature vector similarity library
+* excellent performance
+* widely used
+
+Disadvantages for this project:
+
+* more infrastructure must be built around it
+* metadata handling is less convenient as the primary application store
+
+### Qdrant
+
+Advantages:
+
+* powerful metadata filtering
+* production-oriented
+* strong vector database capabilities
+
+Disadvantage:
+
+* more infrastructure than necessary for the first version
+
+### pgvector
+
+Advantages:
+
+* PostgreSQL integration
+* useful production architecture
+
+Disadvantage:
+
+* introduces a database infrastructure dependency before it is necessary
+
+### Decision
+
+Start with:
+
+```text
+ChromaDB
+```
+
+Later, if project requirements demonstrate a need for something else, we can compare alternatives experimentally.
+
+---
+
+# 18. LLM
+
+## Chosen Approach: Ollama
+
+The LLM layer will initially run locally through Ollama.
+
+Conceptually:
+
+```text
+Application
+     ↓
+Ollama
+     ↓
+Local LLM
+```
+
+Benefits:
+
+* no mandatory external API
+* local experimentation
+* reproducibility
+* privacy
+* easier experimentation with different models
+
+The specific model should not be hard-coded into the architecture.
+
+It should be configurable.
+
+For example:
+
+```text
+OLLAMA_MODEL=...
+```
+
+This allows the model to be changed without redesigning the application.
+
+---
+
+# 19. Why We Are Not Starting With LangChain
+
+The first version should implement the RAG pipeline directly.
+
+Conceptually:
+
+```python
+query
+   ↓
+embed(query)
+   ↓
+chromadb.search()
+   ↓
+build_context()
+   ↓
+ollama.generate()
+```
+
+This is intentional.
+
+The objective is to understand:
+
+* embeddings
+* retrieval
+* metadata
+* context construction
+* prompting
+* citations
+* evaluation
+* latency
+
+before introducing an abstraction layer.
+
+Later, a framework can be introduced if there is a concrete reason.
+
+---
+
+# 20. Prompting Strategy
+
+The LLM will receive something conceptually like:
+
+```text
+SYSTEM:
+
+You are a cybersecurity intelligence assistant.
+
+Answer only using the supplied evidence.
+
+If the evidence is insufficient, say that sufficient
+evidence was not found.
+
+Do not invent facts.
+
+Cite the sources supporting your answer.
+
+CONTEXT:
+
+[Source 1]
+...
+
+[Source 2]
+...
+
+USER QUESTION:
+
+...
+```
+
+The important principle is:
+
+> Retrieval determines what evidence the model gets; prompting determines how the model uses that evidence.
+
+---
+
+# 21. Citation System
+
+Citations are a core feature, not decoration.
+
+Every answer should be traceable to retrieved evidence.
+
+Example conceptual response:
+
+```text
+CVE-XXXX is a critical vulnerability affecting ...
+
+The vulnerability affects ...
+
+CISA lists the vulnerability in its Known Exploited
+Vulnerabilities catalog.
+
+Sources:
+[1] NVD
+[2] Vendor Advisory
+[3] CISA KEV
+```
+
+Each source should eventually contain:
+
+```text
+source name
+title
+URL
+document identifier
+```
+
+The user should be able to click the source.
+
+---
+
+# 22. Groundedness
+
+The project will explicitly distinguish:
+
+### Model knowledge
+
+Information the LLM already learned during training.
+
+### Retrieved evidence
+
+Information supplied by our system.
+
+### Grounded answer
+
+An answer supported by the retrieved evidence.
+
+Example:
+
+```text
+Retrieved evidence:
+"Version 4.2 is affected."
+
+Answer:
+"Version 4.2 is affected."
+```
+
+This is grounded.
+
+If the model instead says:
+
+```text
+"Version 4.2 and 4.3 are affected"
+```
+
+when the retrieved evidence only mentions 4.2, the additional claim is unsupported.
+
+The evaluation system should detect these failures.
+
+---
+
+# 23. Evaluation System
+
+Evaluation will be a first-class component.
+
+It will not be something we add at the very end.
+
+The evaluation harness will behave like a test suite for the RAG system.
+
+Conceptually:
+
+```text
+Evaluation Dataset
+       ↓
+Run RAG System
+       ↓
+Collect Results
+       ↓
+Calculate Metrics
+       ↓
+Analyze Failures
+       ↓
+Make Architecture Decision
+       ↓
+Change System
+       ↓
+Run Evaluation Again
+```
+
+---
+
+# 24. Evaluation Dataset
+
+Initial target:
+
+**30–50 carefully designed questions**
+
+The dataset should include categories such as:
+
+### Category A — Direct Retrieval
+
+> What is CVE-X?
+
+### Category B — Metadata
+
+> What is the CVSS score?
+
+### Category C — Product
+
+> Which products are affected?
+
+### Category D — KEV
+
+> Is this vulnerability known to be exploited?
+
+### Category E — Multi-source
+
+> Compare the vendor advisory with the KEV information.
+
+### Category F — Multi-document
+
+> Summarize the vulnerability using NVD and the vendor advisory.
+
+### Category G — Comparison
+
+> Compare CVE-X and CVE-Y.
+
+### Category H — Unanswerable
+
+> Which threat actor exploited this vulnerability?
+
+when the indexed sources do not establish that fact.
+
+---
+
+# 25. Evaluation Metrics
+
+The project will initially track several dimensions.
+
+## Retrieval
+
+### Recall@K
+
+Did the system retrieve the relevant evidence within the top K results?
+
+---
+
+### Precision@K
+
+How many of the retrieved results were actually relevant?
+
+---
+
+### MRR
+
+Mean Reciprocal Rank.
+
+Useful for determining how high the first relevant result appears.
+
+---
+
+## Answer
+
+### Correctness
+
+Does the answer correctly answer the question?
+
+### Groundedness / Faithfulness
+
+Are the claims supported by retrieved evidence?
+
+### Relevance
+
+Does the answer actually address the user's question?
+
+---
+
+## System
+
+### Latency
+
+Measure:
+
+```text
+embedding time
+retrieval time
+LLM generation time
+total response time
+```
+
+This gives the project an engineering dimension rather than only an AI dimension.
+
+---
+
+# 26. Evaluation Is Not Training
+
+The evaluation harness is not expected to run on every user query.
+
+Normal operation:
+
+```text
+User
+ ↓
+RAG
+ ↓
+Answer
+```
+
+Development evaluation:
+
+```text
+Fixed Evaluation Dataset
+ ↓
+RAG
+ ↓
+Metrics
+ ↓
+Report
+```
+
+This evaluation process will be run when:
+
+* changing chunking
+* changing embeddings
+* changing retrieval
+* changing prompts
+* changing the LLM
+* changing source processing
+* preparing a release
+* running regression tests
+
+---
+
+# 27. Experiment-Driven Development
+
+Every major improvement should answer a question.
+
+For example:
+
+> Does increasing chunk size improve retrieval quality?
+
+Experiment:
+
+```text
+Baseline:
+500 tokens
+
+Experiment:
+800 tokens
+
+Dataset:
+40 questions
+
+Measure:
+Recall@5
+Groundedness
+Latency
+```
+
+Then record:
+
+```text
+Hypothesis
+Experiment
+Results
+Observation
+Decision
+Tradeoff
+```
+
+This is much stronger for a portfolio than simply saying:
+
+> "I used a reranker because rerankers are good."
+
+---
+
+# 28. Experiment Examples
+
+Potential experiments:
+
+### Experiment 001
+
+Embedding model comparison
+
+### Experiment 002
+
+Chunk size comparison
+
+### Experiment 003
+
+Chunk overlap comparison
+
+### Experiment 004
+
+Top-K comparison
+
+### Experiment 005
+
+Metadata filtering
+
+### Experiment 006
+
+Dense vs keyword retrieval
+
+### Experiment 007
+
+Hybrid retrieval
+
+### Experiment 008
+
+Reranking
+
+### Experiment 009
+
+Prompt variations
+
+### Experiment 010
+
+LLM comparison
+
+Not all of these are guaranteed to be implemented.
+
+They are candidates.
+
+Evaluation decides which improvements are worth keeping.
+
+---
+
+# 29. Architecture Decision Records
+
+The repository will contain Architecture Decision Records.
+
+Example:
+
+```text
+docs/
+└── decisions/
+    ├── ADR-001-chromadb.md
+    ├── ADR-002-ollama.md
+    ├── ADR-003-chunking.md
+    ├── ADR-004-embedding-model.md
+    ├── ADR-005-retrieval-strategy.md
+    └── ADR-006-evaluation-strategy.md
+```
+
+Each ADR should answer:
+
+```text
+Context
+Problem
+Options considered
+Decision
+Why
+Tradeoffs
+Consequences
+```
+
+Example:
+
+> Why ChromaDB instead of Qdrant?
+
+Not simply:
+
+> "ChromaDB is easier."
+
+Instead:
+
+```text
+Requirements:
+- local development
+- metadata filtering
+- easy experimentation
+- low operational overhead
+
+Options:
+- FAISS
+- ChromaDB
+- Qdrant
+- pgvector
+
+Decision:
+ChromaDB
+
+Reason:
+...
+```
+
+---
+
+# 30. Repository Structure
+
+The repository will evolve toward something similar to:
+
+```text
+cybersecurity-intelligence-rag/
+│
+├── README.md
+├── requirements.txt
+├── .env.example
+├── .gitignore
+│
+├── app/
+│   ├── main.py
+│   │
+│   ├── api/
+│   │   └── routes.py
+│   │
+│   ├── ingestion/
+│   │   ├── loaders/
+│   │   ├── parsers/
+│   │   └── normalizers/
+│   │
+│   ├── retrieval/
+│   │   ├── vector_search.py
+│   │   ├── metadata_filter.py
+│   │   ├── keyword_search.py
+│   │   └── reranker.py
+│   │
+│   ├── embeddings/
+│   │   └── embedder.py
+│   │
+│   ├── generation/
+│   │   ├── ollama_client.py
+│   │   └── prompts.py
+│   │
+│   ├── pipeline/
+│   │   └── rag_pipeline.py
+│   │
+│   └── models/
+│       └── schemas.py
+│
+├── data/
+│   ├── raw/
+│   ├── processed/
+│   └── evaluation/
+│
+├── experiments/
+│   ├── README.md
+│   ├── embedding/
+│   ├── chunking/
+│   ├── retrieval/
+│   └── reranking/
+│
+├── evaluation/
+│   ├── dataset/
+│   ├── runner.py
+│   ├── metrics.py
+│   └── reports/
+│
+├── docs/
+│   ├── architecture.md
+│   ├── data-model.md
+│   ├── retrieval.md
+│   ├── evaluation.md
+│   └── decisions/
+│
+├── tests/
+│   ├── ingestion/
+│   ├── retrieval/
+│   ├── pipeline/
+│   └── evaluation/
+│
+└── frontend/
+    └── ...
+```
+
+The structure is allowed to evolve.
+
+We should **not create empty folders simply because they look professional**.
+
+Directories should appear when the project actually needs them.
+
+---
+
+# 31. Web Interface
+
+The interface should remain deliberately small.
+
+Initial interface:
+
+```text
+┌──────────────────────────────────────────────┐
+│        Cybersecurity Intelligence             │
+│                                              │
+│ Ask a cybersecurity question:                │
+│                                              │
+│ [__________________________________________] │
+│                                              │
+│                 [Ask]                        │
+│                                              │
+│ Answer                                       │
+│ ──────────────────────────────────────────── │
+│                                              │
+│ ...                                           │
+│                                              │
+│ Sources                                      │
+│ [1] NVD                                      │
+│ [2] Vendor Advisory                          │
+│ [3] CISA KEV                                 │
+└──────────────────────────────────────────────┘
+```
+
+The interface is not the project's main achievement.
+
+The RAG system behind it is.
+
+---
+
+# 32. Backend
+
+FastAPI will expose an API similar to:
+
+```text
+POST /query
+```
+
+Request:
+
+```json
+{
+  "question": "What is CVE-XXXX-XXXX?"
+}
+```
+
+Response conceptually:
+
+```json
+{
+  "answer": "...",
+  "sources": [
+    {
+      "title": "...",
+      "url": "..."
+    }
+  ],
+  "retrieved_documents": [...]
+}
+```
+
+The API should eventually separate:
+
+```text
+retrieval
+generation
+citation
+```
+
+rather than putting the entire application into one endpoint function.
+
+---
+
+# 33. Configuration
+
+Configuration should not be hard-coded.
+
+Example:
+
+```text
+OLLAMA_HOST
+OLLAMA_MODEL
+EMBEDDING_MODEL
+CHROMA_PATH
+TOP_K
+CHUNK_SIZE
+CHUNK_OVERLAP
+```
+
+Use:
+
+```text
+.env
+```
+
+with:
+
+```text
+.env.example
+```
+
+checked into GitHub.
+
+Secrets should never be committed.
+
+---
+
+# 34. Logging
+
+The application should eventually record useful information such as:
+
+```text
+request ID
+query
+retrieval latency
+number of documents retrieved
+LLM latency
+total latency
+model
+errors
+```
+
+But we should avoid logging unnecessary sensitive user information.
+
+The objective is observability, not massive logging.
+
+---
+
+# 35. Error Handling
+
+The application should gracefully handle:
+
+* Ollama unavailable
+* embedding failure
+* ChromaDB unavailable
+* malformed source data
+* empty retrieval results
+* invalid API requests
+* LLM timeout
+* missing source metadata
+
+Example:
+
+```text
+No relevant evidence was found in the indexed
+cybersecurity sources.
+```
+
+is preferable to:
+
+```text
+The model invents an answer.
+```
+
+---
+
+# 36. Testing
+
+Testing will eventually include:
+
+## Unit Tests
+
+Examples:
+
+```text
+Does CVE parser extract the correct ID?
+Does normalizer create expected metadata?
+Does chunker produce expected chunks?
+```
+
+## Retrieval Tests
+
+```text
+Does CVE-X retrieve its own record?
+Does metadata filtering work?
+```
+
+## API Tests
+
+```text
+Does /query return the expected schema?
+```
+
+## Regression Tests
+
+The evaluation dataset can serve as a higher-level regression suite.
+
+---
+
+# 37. Security Scope
+
+Cybersecurity is the project domain, but the first version will **not** attempt to become a security-testing platform.
+
+Explicitly deferred:
+
+* prompt injection testing
+* malicious document testing
+* adversarial retrieval attacks
+* agent security
+* automated exploit analysis
+* offensive security automation
+
+These may become future extensions.
+
+The current objective is to learn and demonstrate high-quality RAG engineering.
+
+---
+
+# 38. Features Explicitly Deferred
+
+To prevent scope explosion, the following are **not part of the initial project**:
+
+### No complex agents
+
+No multi-agent architecture initially.
+
+### No knowledge graph
+
+Entity relationships will be represented through metadata and identifiers first.
+
+### No graph database
+
+No Neo4j initially.
+
+### No confidence scoring
+
+The system will provide evidence and citations, but not a sophisticated confidence model.
+
+### No automated threat hunting
+
+Not the goal.
+
+### No real-time enterprise feeds
+
+Initial ingestion will use public sources.
+
+### No mobile application
+
+Not relevant.
+
+### No elaborate frontend
+
+Keep the UI simple.
+
+---
+
+# 39. Potential Future Extensions
+
+Only after the core system works well.
+
+Possible future versions:
+
+```text
+CyberIntel RAG
+      ↓
+Entity Linking
+      ↓
+Knowledge Graph
+      ↓
+Attack Technique Relationships
+      ↓
+Threat Actor Relationships
+      ↓
+Temporal Intelligence
+      ↓
+Analyst Workflows
+```
+
+Other possibilities:
+
+* ATT&CK integration
+* CWE relationships
+* EPSS integration
+* additional vendor sources
+* temporal vulnerability tracking
+* vulnerability prioritization
+* graph-based retrieval
+* agentic research workflow
+* automated source monitoring
+
+These are **future possibilities**, not current requirements.
+
+---
+
+# 40. Data Freshness
+
+Because cybersecurity information changes over time, freshness is important.
+
+NVD provides APIs and feeds intended for keeping vulnerability information current; its current documentation recommends the 2.0 APIs and provides recent/modified feeds for synchronization.
+
+The ingestion architecture should therefore eventually support:
+
+```text
+Initial ingestion
+       ↓
+Store source state
+       ↓
+Track last update
+       ↓
+Fetch new/modified records
+       ↓
+Update index
+```
+
+But Version 1 does not need a sophisticated scheduler.
+
+First make ingestion work.
+
+Then automate it.
+
+---
+
+# 41. Data Pipeline
+
+The ingestion process should eventually look like:
+
+```text
+Source
+ ↓
+Downloader / API Client
+ ↓
+Raw Data
+ ↓
+Parser
+ ↓
+Normalizer
+ ↓
+Validation
+ ↓
+Deduplication
+ ↓
+Structured Metadata
+ +
+Text
+ ↓
+Chunking
+ ↓
+Embedding
+ ↓
+ChromaDB
+```
+
+Raw data should ideally be preserved separately from processed data.
+
+This gives us reproducibility.
+
+---
+
+# 42. Why Preserve Raw Data?
+
+Suppose we discover that our parser was wrong.
+
+Without raw data:
+
+```text
+Source
+ ↓
+Parser
+ ↓
+Database
+```
+
+we may need to download everything again.
+
+With raw data:
+
+```text
+Raw Source
+     ↓
+Parser v1
+     ↓
+Processed Data
+
+Raw Source
+     ↓
+Parser v2
+     ↓
+Processed Data v2
+```
+
+This also makes experiments reproducible.
+
+---
+
+# 43. Reproducibility
+
+A strong project should make it possible for someone else to understand:
+
+```text
+Which data?
+Which parser?
+Which embedding model?
+Which chunk size?
+Which retrieval method?
+Which LLM?
+Which evaluation dataset?
+```
+
+This is much more valuable than simply having a working chatbot.
+
+---
+
+# 44. GitHub Strategy
+
+GitHub history is part of the project.
+
+We will **not** build the entire system privately and then create artificial commits afterward.
+
+Development should naturally produce commits.
+
+Examples:
+
+```text
+chore: initialize project structure
+
+docs: define project scope and architecture
+
+feat: add NVD data ingestion
+
+feat: normalize CVE records
+
+feat: add baseline document chunker
+
+feat: add embedding pipeline
+
+feat: initialize ChromaDB collection
+
+feat: implement baseline dense retrieval
+
+feat: integrate Ollama generation
+
+feat: add source citations
+
+test: add baseline retrieval evaluation
+
+experiment: compare chunk sizes
+
+feat: add metadata filtering
+
+experiment: evaluate hybrid retrieval
+
+feat: add FastAPI query endpoint
+
+feat: add basic web interface
+```
+
+The actual commits should reflect what actually happened.
+
+---
+
+# 45. Commit Philosophy
+
+We should prefer meaningful commits over artificial micro-commits.
+
+Bad:
+
+```text
+added variable
+fixed typo
+changed line
+another change
+```
+
+Better:
+
+```text
+feat: implement CVE normalization pipeline
+```
+
+The commit should represent a coherent development step.
+
+---
+
+# 46. GitHub Documentation
+
+The README should eventually explain:
+
+```text
+1. Problem
+2. Project objective
+3. Architecture
+4. Data sources
+5. RAG pipeline
+6. Retrieval evolution
+7. Evaluation
+8. Experiments
+9. Results
+10. Tradeoffs
+11. Setup
+12. Usage
+13. Limitations
+14. Future work
+```
+
+A reader should be able to understand not only:
+
+> "What did you build?"
+
+but also:
+
+> "Why did you build it this way?"
+
+---
+
+# 47. Development Phases
+
+The project will be built in phases.
+
+## Phase 0 — Project Foundation
+
+Goal:
+
+Create the project skeleton and establish the development environment.
+
+Deliverables:
+
+* Git repository
+* Python environment
+* requirements
+* README skeleton
+* `.env.example`
+* basic project structure
+* initial architecture document
+
+---
+
+# 48. Phase 1 — Data Ingestion
+
+Goal:
+
+Get real cybersecurity data into the project.
+
+Start with one source.
+
+Recommended first source:
+
+```text
+NVD
+```
+
+Tasks:
+
+* understand source schema
+* retrieve sample records
+* parse JSON
+* normalize CVE information
+* save processed records
+* write ingestion tests
+
+Do not add all three sources immediately.
+
+First prove the pipeline with one.
+
+---
+
+# 49. Phase 2 — Basic Document Pipeline
+
+Goal:
+
+Convert source information into retrievable text.
+
+Tasks:
+
+* text extraction
+* baseline chunking
+* metadata generation
+* embedding generation
+* ChromaDB insertion
+
+At the end:
+
+```text
+Cybersecurity document
+        ↓
+Chunks
+        ↓
+Embeddings
+        ↓
+ChromaDB
+```
+
+---
+
+# 50. Phase 3 — Baseline Retrieval
+
+Goal:
+
+Implement the simplest possible RAG retrieval.
+
+```text
+Question
+ ↓
+Embedding
+ ↓
+ChromaDB
+ ↓
+Top-K chunks
+```
+
+Before introducing an LLM, inspect retrieval manually.
+
+This is important.
+
+We need to know whether the retrieval system itself works.
+
+---
+
+# 51. Phase 4 — Ollama Integration
+
+Goal:
+
+Connect retrieved context to a local LLM.
+
+Pipeline:
+
+```text
+Question
+ ↓
+Retrieve
+ ↓
+Context
+ ↓
+Prompt
+ ↓
+Ollama
+ ↓
+Answer
+```
+
+Add:
+
+* grounded prompting
+* citations
+* insufficient-context behavior
+
+At this point we have the first complete RAG system.
+
+---
+
+# 52. Phase 5 — Evaluation Baseline
+
+Before improving retrieval, establish measurements.
+
+Create:
+
+```text
+30–50 questions
+```
+
+Run the baseline system.
+
+Record:
+
+```text
+Retrieval performance
+Answer quality
+Groundedness
+Latency
+Failure cases
+```
+
+This becomes our baseline.
+
+---
+
+# 53. Phase 6 — Add Remaining Sources
+
+Now introduce:
+
+```text
+KEV
++
+Security Advisories
+```
+
+This is deliberately later.
+
+Why?
+
+Because if we introduce all sources before establishing the baseline, it becomes difficult to identify where problems originate.
+
+---
+
+# 54. Phase 7 — Metadata Filtering
+
+Introduce structured retrieval.
+
+Examples:
+
+```text
+source_type
+severity
+vendor
+product
+kev_status
+date
+```
+
+Now the system becomes more than a pure semantic search engine.
+
+---
+
+# 55. Phase 8 — Hybrid Retrieval
+
+Implement:
+
+```text
+Dense retrieval
++
+Keyword retrieval
+```
+
+Then evaluate whether it improves:
+
+* exact CVE retrieval
+* product queries
+* advisory retrieval
+* overall recall
+
+Keep it only if the evidence supports it.
+
+---
+
+# 56. Phase 9 — Reranking
+
+Introduce a reranker only if evaluation indicates retrieval quality remains a bottleneck.
+
+Measure:
+
+```text
+Before reranking
+vs
+After reranking
+```
+
+If improvement is negligible relative to computational cost, document that result.
+
+That is still a valuable engineering finding.
+
+---
+
+# 57. Phase 10 — API + Interface
+
+Build:
+
+```text
+FastAPI
++
+Simple Web UI
+```
+
+The interface should expose the actual capabilities developed by the backend.
+
+---
+
+# 58. Phase 11 — Engineering Quality
+
+Add:
+
+* logging
+* error handling
+* tests
+* configuration
+* documentation
+* reproducibility
+* Docker if useful
+
+Docker is not mandatory simply for the sake of having Docker.
+
+It should solve a real deployment/reproducibility problem.
+
+---
+
+# 59. Phase 12 — Final Evaluation
+
+Run the complete evaluation suite.
+
+Compare:
+
+```text
+Baseline
+        ↓
++ Metadata
+        ↓
++ Multiple Sources
+        ↓
++ Hybrid Retrieval
+        ↓
++ Reranking
+```
+
+Not every stage must outperform the previous stage.
+
+The results themselves become part of the project's story.
+
+---
+
+# 60. Final Evaluation Report
+
+The final report should answer:
+
+### Retrieval
+
+* Did retrieval improve?
+* Which retrieval strategy performed best?
+
+### Chunking
+
+* Which chunk size worked best?
+* Why?
+
+### Embeddings
+
+* Which model performed best?
+* What was the cost?
+
+### LLM
+
+* Which model produced the best grounded answers?
+
+### Sources
+
+* Which sources contributed most useful information?
+
+### Performance
+
+* What is the average latency?
+* Which component is the bottleneck?
+
+### Failure Analysis
+
+* Where does the system still fail?
+
+---
+
+# 61. The Most Important Engineering Story
+
+The project should ultimately tell this story:
+
+```text
+I built a baseline RAG system.
+             ↓
+I evaluated it.
+             ↓
+I discovered retrieval weaknesses.
+             ↓
+I formed hypotheses.
+             ↓
+I ran experiments.
+             ↓
+I changed the architecture.
+             ↓
+I measured the result.
+             ↓
+I kept or rejected the change based on evidence.
+```
+
+This is much stronger than:
+
+```text
+I used:
+LangChain
++
+Chroma
++
+Ollama
++
+RAG
++
+React
+```
+
+---
+
+# 62. Target Final Architecture
+
+The mature version should conceptually look like:
+
+```text
+                       ┌───────────────────┐
+                       │    Web Client      │
+                       └─────────┬─────────┘
+                                 │
+                                 ▼
+                       ┌───────────────────┐
+                       │      FastAPI      │
+                       └─────────┬─────────┘
+                                 │
+                                 ▼
+                       ┌───────────────────┐
+                       │  Query Processor  │
+                       └─────────┬─────────┘
+                                 │
+                 ┌───────────────┼───────────────┐
+                 │               │               │
+                 ▼               ▼               ▼
+          Metadata Filter   Keyword Search   Vector Search
+                 │               │               │
+                 └───────────────┼───────────────┘
+                                 ▼
+                           Candidate Set
+                                 │
+                                 ▼
+                            Reranker
+                                 │
+                                 ▼
+                          Top-K Evidence
+                                 │
+                                 ▼
+                       Context Construction
+                                 │
+                                 ▼
+                             Ollama
+                                 │
+                                 ▼
+                    Grounded Answer Generator
+                                 │
+                   ┌─────────────┴─────────────┐
+                   ▼                           ▼
+                Answer                      Sources
+```
+
+Meanwhile:
+
+```text
+                    DATA PIPELINE
+                         │
+       ┌─────────────────┼──────────────────┐
+       ▼                 ▼                  ▼
+      NVD                KEV            Advisories
+       │                 │                  │
+       └─────────────────┼──────────────────┘
+                         ▼
+                    Normalization
+                         ↓
+                  Structured Data
+                         +
+                       Text
+                         ↓
+                      Chunking
+                         ↓
+                    Embeddings
+                         ↓
+                     ChromaDB
+```
+
+And separately:
+
+```text
+                    EVALUATION
+                         │
+                  Evaluation Dataset
+                         ↓
+                     RAG System
+                         ↓
+                     Metrics
+                         ↓
+                  Experiment Results
+                         ↓
+                  Architecture Decisions
+```
+
+---
+
+# 63. Final Scope Boundary
+
+The project is considered complete when it can:
+
+1. ingest real cybersecurity data
+2. normalize multiple source types
+3. create searchable representations
+4. store embeddings in ChromaDB
+5. perform baseline semantic retrieval
+6. retrieve across multiple cybersecurity sources
+7. use metadata where appropriate
+8. generate answers using Ollama
+9. provide citations
+10. refuse unsupported answers
+11. expose functionality through an API
+12. provide a simple web interface
+13. evaluate retrieval and answer quality
+14. document experiments
+15. document architectural decisions
+16. demonstrate measurable improvements over the baseline
+17. have a reproducible GitHub repository
+18. clearly explain the tradeoffs behind major technical decisions
+
+---
+
+# 64. Definition of Success
+
+The project is **not successful merely because the chatbot works**.
+
+A successful final project should allow you to explain:
+
+> What problem did you solve?
+
+> Why is RAG appropriate for this problem?
+
+> Why did you choose these data sources?
+
+> Why is some information structured while other information is embedded?
+
+> Why ChromaDB?
+
+> Why Ollama?
+
+> Why this embedding model?
+
+> How did you choose chunk size?
+
+> How did you evaluate retrieval?
+
+> Why did you introduce metadata filtering?
+
+> Why did you introduce hybrid retrieval?
+
+> Did reranking actually help?
+
+> Where does the system fail?
+
+> How do you know your final architecture is better than your baseline?
+
+If you can answer those questions, you will have learned considerably more than simply building a chatbot.
+
+---
+
+# 65. Project Development Philosophy
+
+The project will follow five rules.
+
+### Rule 1 — Build before abstracting
+
+Understand the underlying RAG pipeline before introducing large frameworks.
+
+### Rule 2 — Measure before optimizing
+
+Do not add sophisticated retrieval techniques without evidence that they are needed.
+
+### Rule 3 — Prefer authoritative evidence
+
+The system should prioritize reliable cybersecurity sources.
+
+### Rule 4 — Keep scope controlled
+
+A smaller, deeply engineered RAG system is preferable to a huge collection of half-implemented features.
+
+### Rule 5 — Let GitHub tell the story
+
+The repository should show the actual progression:
+
+```text
+Question
+ ↓
+Implementation
+ ↓
+Failure
+ ↓
+Experiment
+ ↓
+Decision
+ ↓
+Improvement
+```
+
+That progression is part of the project.
+
+---
+
+# 66. Final Project Identity
+
+The simplest description of the finished project is:
+
+> **A cybersecurity intelligence RAG system that retrieves and synthesizes vulnerability information from multiple authoritative sources, produces grounded answers using a locally hosted LLM, provides source citations, and uses systematic evaluation to improve its retrieval architecture.**
+
+The deeper description is:
+
+> **An experiment-driven RAG engineering project exploring how structured cybersecurity intelligence and unstructured security advisories can be combined into a grounded question-answering system, with retrieval quality, answer groundedness, latency, and architectural tradeoffs evaluated throughout development.**
+
+That second description is what the project should ultimately communicate on GitHub and in technical discussions.
