@@ -90,3 +90,28 @@ python validate_nvd.py
 The current implementation is a small development sample, not a
 complete NVD dataset. API error handling and retry logic are
 planned improvements.
+
+
+
+## CVE Document Preparation
+
+The document preparation pipeline transforms normalized NVD CVE
+records into retrieval-ready documents.
+
+Each document contains:
+- `id`: CVE identifier used to identify the source record
+- `text`: CVE identifier combined with the vulnerability description
+- `metadata`: publication timestamp and source
+
+The processed records are saved in JSONL format at
+`data/processed/cve_documents.jsonl`.
+
+### Run the pipeline
+
+```bash
+python prepare_documents.py
+python validate_documents.py
+```
+
+The current dataset contains a small development sample. Dataset
+expansion and retrieval evaluation will be handled in later stages.
