@@ -64,3 +64,29 @@ The initial project is a defensive cybersecurity information retrieval and quest
 ## Project Status
 
 Early development. Features, evaluation results, and performance claims will be documented only after they have been implemented and tested.
+
+
+
+## NVD Data Ingestion
+
+The initial ingestion pipeline retrieves a bounded sample of CVE
+records from the NVD CVE API v2.0.
+
+For each record, it extracts:
+- CVE identifier
+- English description, when available
+- Publication timestamp
+
+The records are normalized and saved locally in JSONL format at
+`data/nvd_cves.jsonl`.
+
+### Run the pipeline
+
+```bash
+python ingest_nvd.py
+python validate_nvd.py
+```
+
+The current implementation is a small development sample, not a
+complete NVD dataset. API error handling and retry logic are
+planned improvements.
