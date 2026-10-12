@@ -2,116 +2,170 @@
 
 An experiment-driven Retrieval-Augmented Generation (RAG) system for answering cybersecurity questions using information from authoritative public sources.
 
-The system will combine structured vulnerability intelligence with textual security advisories, retrieve relevant evidence, and generate answers with source citations using a locally hosted LLM.
+The project explores how vulnerability intelligence can be ingested, normalized, indexed, and retrieved to support evidence-grounded cybersecurity question answering. The system is being built incrementally using local models and open-source tools, with experiments and architectural decisions documented throughout development.
 
 ## Objectives
 
-* Build a RAG pipeline from its fundamental components.
-* Ingest and normalize multiple cybersecurity intelligence sources.
-* Explore structured and semantic retrieval.
-* Generate answers grounded in retrieved evidence.
-* Evaluate retrieval quality, answer groundedness, and latency.
-* Document experiments, architectural decisions, and trade-offs.
+- Build a RAG pipeline from its fundamental components.
+- Ingest and normalize cybersecurity intelligence from public sources.
+- Explore semantic and structured retrieval.
+- Generate answers grounded in retrieved evidence.
+- Evaluate retrieval quality, answer groundedness, and latency.
+- Document experiments, architectural decisions, trade-offs, and limitations.
 
-## Initial Data Sources
+## Technology Stack
 
-* **NVD:** vulnerability records and related metadata.
-* **CISA KEV:** known exploited vulnerability information.
-* **Vendor security advisories:** product-specific impact and remediation guidance.
+| Technology | Purpose |
+|---|---|
+| Python | Data ingestion, document preparation, and retrieval pipeline |
+| NVD CVE API | Initial source of vulnerability intelligence |
+| Ollama | Local embedding generation and planned LLM inference |
+| `nomic-embed-text` | Generates 768-dimensional text embeddings |
+| ChromaDB | Persistent storage and semantic similarity search |
+| FastAPI | Planned API layer |
+| Lightweight web interface | Planned user interface |
 
-## Initial Technology Choices
+## Architecture
 
-* Python
-* ChromaDB
-* Ollama
-* FastAPI
-* A lightweight web interface
+The current implementation follows this pipeline:
 
-Specific embedding and generation models will be selected after local compatibility and quality experiments.
+1. **Ingestion:** Retrieve a bounded sample of CVE records from the NVD API.
+2. **Normalization:** Extract CVE identifiers, English descriptions, and publication timestamps.
+3. **Document preparation:** Transform normalized records into retrieval-ready documents with IDs, text, and metadata.
+4. **Embedding generation:** Use Ollama and `nomic-embed-text` to convert document text into numerical vectors.
+5. **Vector indexing:** Store document IDs, text, metadata, and embeddings in a persistent ChromaDB collection.
+6. **Semantic retrieval:** Convert a user query into an embedding and retrieve the nearest CVE documents using cosine distance.
 
-## Development Philosophy
+Answer generation, source citations in generated answers, and the application interface have not yet been implemented.
 
-Start with a minimal, working RAG baseline. Evaluate it before introducing more sophisticated retrieval techniques.
+## Current Implementation
 
-Major changes should be supported by experiments, tests, or explicit architectural reasoning.
+### NVD Data Ingestion
 
-## Current Status
-
-**Phase 0 — Project foundation**
-
-The repository and development environment are being established. Data ingestion and RAG implementation have not started yet.
-
-## Planned Capabilities
-
-* Public-source ingestion and normalization
-* Vector embeddings and semantic retrieval
-* Metadata filtering and hybrid retrieval
-* Local LLM-based answer generation
-* Source citations and insufficient-evidence handling
-* Evaluation dataset and regression testing
-* FastAPI backend and simple web interface
-
-## Scope Boundaries
-
-The initial project is a defensive cybersecurity information retrieval and question-answering system. It is not a vulnerability scanner, SIEM, automated penetration-testing tool, or autonomous security agent.
-
-## Documentation
-
-* [Architecture](docs/architecture.md)
-* [ChromaDB decision](docs/decisions/ADR-001-chromadb.md)
-* [Ollama decision](docs/decisions/ADR-002-ollama.md)
-
-## Project Status
-
-Early development. Features, evaluation results, and performance claims will be documented only after they have been implemented and tested.
-
-
-
-## NVD Data Ingestion
-
-The initial ingestion pipeline retrieves a bounded sample of CVE
-records from the NVD CVE API v2.0.
+The ingestion pipeline retrieves a bounded sample of CVE records from the NVD CVE API v2.0.
 
 For each record, it extracts:
+
 - CVE identifier
 - English description, when available
 - Publication timestamp
 
-The records are normalized and saved locally in JSONL format at
-`data/nvd_cves.jsonl`.
+The normalized records are saved in JSONL format at `data/nvd_cves.jsonl`.
 
-### Run the pipeline
+Run the ingestion and validation scripts:
 
 ```bash
 python ingest_nvd.py
 python validate_nvd.py
 ```
 
-The current implementation is a small development sample, not a
-complete NVD dataset. API error handling and retry logic are
-planned improvements.
+The current development sample contains 15 records. It is not a complete NVD dataset.
 
+### CVE Document Preparation
 
+The preparation pipeline transforms normalized CVE records into documents suitable for embedding and retrieval.
 
-## CVE Document Preparation
+Each prepared document contains:
 
-The document preparation pipeline transforms normalized NVD CVE
-records into retrieval-ready documents.
+- `id`: CVE identifier used as the document ID.
+- `text`: CVE identifier combined with the vulnerability description.
+- `metadata`: Publication timestamp and source.
 
-Each document contains:
-- `id`: CVE identifier used to identify the source record
-- `text`: CVE identifier combined with the vulnerability description
-- `metadata`: publication timestamp and source
+The prepared documents are saved at `data/processed/cve_documents.jsonl`.
 
-The processed records are saved in JSONL format at
-`data/processed/cve_documents.jsonl`.
-
-### Run the pipeline
+Run document preparation and validation:
 
 ```bash
 python prepare_documents.py
 python validate_documents.py
 ```
 
-The current dataset contains a small development sample. Dataset
-expansion and retrieval evaluation will be handled in later stages.
+Validation checks document structure, required fields, non-empty text, and unique IDs.
+
+### Embeddings and Vector Indexing
+
+The indexing pipeline uses Ollama with `nomic-embed-text` to generate a 768-dimensional embedding for each prepared CVE document.
+
+The embeddings, document text, IDs, and metadata are stored in a persistent ChromaDB collection named `cybersecurity_intelligence`. The collection uses cosine distance for similarity comparisons.
+
+The indexing script uses `upsert`, allowing existing document IDs to be updated without creating duplicate entries for the same IDs.
+
+Build or update the index:
+
+```bash
+python index_documents.py
+```
+
+Verify the stored documents and embeddings:
+
+```bash
+python verify_index.py
+```
+
+The current index contains 15 unique CVE documents.
+
+### Semantic Retrieval
+
+The retrieval script accepts a cybersecurity question, generates its embedding using the same model used during indexing, and queries ChromaDB for the three nearest documents.
+
+Run a search:
+
+```bash
+python search_cves.py
+```
+
+The results include the CVE identifier, description, metadata, and cosine distance.
+
+A lower cosine distance generally indicates greater similarity between vectors. However, distance is not a probability or a guarantee of relevance. The current implementation returns the nearest available documents even when the collection does not contain suitable evidence.
+
+## Initial Retrieval Experiments
+
+Manual tests have been performed using three types of questions:
+
+| Query type | Observation |
+|---|---|
+| Privilege escalation | Retrieved vulnerabilities describing root-level command execution and privilege escalation. |
+| Sendmail vulnerabilities | The top two results explicitly mentioned Sendmail, while a lower-ranked result concerned another utility. |
+| Modern quantum encryption | Returned unrelated historical CVEs because the current dataset contains no relevant documents. |
+
+These experiments provide an initial indication that semantic retrieval works, while also demonstrating the limitations of a small dataset and nearest-neighbour search without relevance filtering.
+
+The results are preliminary observations, not a formal retrieval evaluation.
+
+## Development Philosophy
+
+Start with a minimal, working RAG baseline and evaluate it before introducing more sophisticated techniques.
+
+Major architectural changes should be supported by experiments, tests, or explicit reasoning. The implementation is developed incrementally so that individual components can be understood, verified, and evaluated independently.
+
+## Planned Capabilities
+
+- Expand ingestion to additional cybersecurity intelligence sources, including CISA Known Exploited Vulnerabilities (KEV) and vendor security advisories.
+- Explore metadata filtering and hybrid retrieval.
+- Build a fixed evaluation dataset and measure retrieval quality using metrics such as Recall@K, Precision@K, and MRR.
+- Generate evidence-grounded answers using a locally hosted LLM.
+- Explore source citations and insufficient-evidence handling.
+- Evaluate answer groundedness, relevance, and latency.
+- Build a FastAPI backend and lightweight web interface.
+
+## Scope Boundaries
+
+The project is a defensive cybersecurity information retrieval and question-answering system. It is not intended to be a vulnerability scanner, SIEM, automated penetration-testing tool, or autonomous security agent.
+
+## Repository and Local Data
+
+Generated datasets and the local ChromaDB index are development artifacts and should not be committed to Git. The scripts, configuration, documentation, and dependency manifest should be tracked in the repository.
+
+## Documentation
+
+- [Architecture](docs/architecture.md)
+- [ChromaDB decision — ADR-001](docs/decisions/ADR-001-chromadb.md)
+- [Ollama decision — ADR-002](docs/decisions/ADR-002-ollama.md)
+
+## Project Status
+
+**Current milestone:** Local semantic retrieval baseline implemented.
+
+The pipeline can ingest and validate a small NVD sample, prepare documents, generate embeddings locally, persist them in ChromaDB, and retrieve similar CVE records for a query.
+
+LLM-based answer generation, multi-source ingestion, formal retrieval evaluation, relevance thresholds, and the application interface remain future work. Features and performance claims will be documented after implementation and testing.
