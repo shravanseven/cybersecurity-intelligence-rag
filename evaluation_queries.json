@@ -1,0 +1,30 @@
+
+[
+  {
+    "query": "Which vulnerability affects Sendmail's debug command?",
+    "expected_ids": ["CVE-1999-0095"],
+    "type": "answerable"
+  },
+  {
+    "query": "What vulnerability affects Check Point Quantum Security Gateways?",
+    "expected_ids": ["CISA_KEV:CVE-2024-24919"],
+    "type": "answerable"
+  },
+  {
+    "query": "Does CVE-2017-1000486 describe a remote code execution vulnerability?",
+    "expected_ids": [
+      "CISA_KEV:CVE-2017-1000486"
+    ],
+    "type": "answerable"
+  },
+  {
+    "query": "Which vulnerabilities affect modern quantum encryption systems?",
+    "expected_ids": [],
+    "type": "unanswerable"
+  },
+  {
+    "query": "Which vulnerability affected BIND and required action to remediate?",
+    "expected_ids": ["CISA_KEV:CVE-2015-5477"],
+    "type": "answerable"
+  }
+]

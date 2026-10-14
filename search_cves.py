@@ -1,4 +1,6 @@
 
+import re
+
 import chromadb
 import ollama
 
@@ -7,6 +9,143 @@ DB_PATH = "chroma_db"
 COLLECTION_NAME = "cybersecurity_intelligence"
 EMBEDDING_MODEL = "nomic-embed-text"
 TOP_K = 3
+
+
+def extract_cve_id(query):
+    """Extract a CVE identifier from the user's question."""
+    match = re.search(
+        r"\bCVE-\d{4}-\d{4,}\b",
+        query,
+        re.IGNORECASE,
+    )
+
+    if match:
+        return match.group(0).upper()
+
+    return None
+
+
+def get_exact_matches(collection, cve_id):
+    """Retrieve exact CVE matches across supported document ID formats."""
+    possible_ids = [
+        cve_id,
+        f"CISA_KEV:{cve_id}",
+    ]
+
+    results = collection.get(
+        ids=possible_ids,
+        include=["documents", "metadatas"],
+    )
+
+    exact_matches = []
+
+    for i, document_id in enumerate(results["ids"]):
+        exact_matches.append({
+            "id": document_id,
+            "document": results["documents"][i],
+            "metadata": results["metadatas"][i] or {},
+            "distance": None,
+            "match_type": "Exact CVE-ID match",
+        })
+
+    # Also check metadata in case a source uses a different ID format.
+    if not exact_matches:
+        metadata_results = collection.get(
+            where={"cve_id": cve_id},
+            include=["documents", "metadatas"],
+        )
+
+        for i, document_id in enumerate(metadata_results["ids"]):
+            exact_matches.append({
+                "id": document_id,
+                "document": metadata_results["documents"][i],
+                "metadata": metadata_results["metadatas"][i] or {},
+                "distance": None,
+                "match_type": "Exact CVE-ID match",
+            })
+
+    return exact_matches
+
+
+def semantic_search(collection, query):
+    """Retrieve semantically similar documents."""
+    response = ollama.embed(
+        model=EMBEDDING_MODEL,
+        input=query,
+    )
+    query_embedding = response["embeddings"][0]
+
+    results = collection.query(
+        query_embeddings=[query_embedding],
+        n_results=min(TOP_K, collection.count()),
+        include=["documents", "metadatas", "distances"],
+    )
+
+    matches = []
+
+    for i, document_id in enumerate(results["ids"][0]):
+        matches.append({
+            "id": document_id,
+            "document": results["documents"][0][i],
+            "metadata": results["metadatas"][0][i] or {},
+            "distance": results["distances"][0][i],
+            "match_type": "Semantic match",
+        })
+
+    return matches
+
+
+def display_results(matches):
+    """Display exact and semantic results consistently."""
+    if not matches:
+        print("No results were returned.")
+        return
+
+    print("\nSearch results:")
+
+    for i, result in enumerate(matches):
+        document_id = result["id"]
+        document = result["document"]
+        metadata = result["metadata"]
+
+        cve_id = metadata.get("cve_id")
+
+        if not cve_id:
+            cve_id = document_id.removeprefix("CISA_KEV:")
+
+        source = metadata.get("source", "Unknown")
+
+        print(f"\n{'-' * 60}")
+        print(f"Result {i + 1}")
+        print(f"Match type: {result['match_type']}")
+        print(f"Source: {source}")
+        print(f"CVE ID: {cve_id}")
+
+        for field, label in [
+            ("vendor", "Vendor"),
+            ("product", "Product"),
+            ("published", "Published"),
+            ("date_added", "Added to CISA KEV"),
+            ("due_date", "Remediation due date"),
+            ("known_ransomware_use", "Known ransomware use"),
+            ("cwes", "CWEs"),
+        ]:
+            value = metadata.get(field)
+
+            if value:
+                print(f"{label}: {value}")
+
+        distance = result["distance"]
+
+        if distance is not None:
+            print(f"Cosine distance: {distance:.4f}")
+        else:
+            print("Cosine distance: Not applicable (exact match)")
+
+        print("Document:")
+        print(document)
+
+    print(f"\nReturned {len(matches)} result(s).")
 
 
 def main():
@@ -31,39 +170,38 @@ def main():
         print("Please enter a question.")
         return
 
-    # 3. Convert the question into an embedding
+    matches = []
+    exact_cve_id = extract_cve_id(query)
+
+    # 3. Retrieve the explicitly requested CVE, if present
+    if exact_cve_id:
+        try:
+            matches.extend(
+                get_exact_matches(collection, exact_cve_id)
+            )
+        except Exception as error:
+            print("Exact CVE lookup failed.")
+            print("Details:", error)
+            return
+
+    # 4. Add semantic matches
     try:
-        response = ollama.embed(
-            model=EMBEDDING_MODEL,
-            input=query,
-        )
-        query_embedding = response["embeddings"][0]
+        semantic_matches = semantic_search(collection, query)
     except Exception as error:
-        print("Could not generate the query embedding.")
+        print("Semantic search failed.")
         print("Check that Ollama is running and the embedding model is available.")
         print("Details:", error)
         return
 
-    # 4. Search ChromaDB for similar documents
-    try:
-        results = collection.query(
-            query_embeddings=[query_embedding],
-            n_results=min(TOP_K, collection.count()),
-            include=["documents", "metadatas", "distances"],
-        )
-    except Exception as error:
-        print("The vector search failed.")
-        print("Details:", error)
-        return
+    # 5. Combine results without duplicate document IDs
+    seen_ids = {result["id"] for result in matches}
 
-    # 5. Display results in ChromaDB's returned order
-    print("\nSearch results:")
+    for result in semantic_matches:
+        if result["id"] not in seen_ids:
+            matches.append(result)
+            seen_ids.add(result["id"])
 
-    for i, cve_id in enumerate(results["ids"][0], start=1):
-        print(f"\n{i}. {cve_id}")
-        print("Text:", results["documents"][0][i - 1])
-        print("Metadata:", results["metadatas"][0][i - 1])
-        print("Cosine distance:", results["distances"][0][i - 1])
+    display_results(matches)
 
 
 if __name__ == "__main__":

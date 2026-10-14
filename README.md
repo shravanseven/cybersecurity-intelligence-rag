@@ -169,3 +169,52 @@ Generated datasets and the local ChromaDB index are development artifacts and sh
 The pipeline can ingest and validate a small NVD sample, prepare documents, generate embeddings locally, persist them in ChromaDB, and retrieve similar CVE records for a query.
 
 LLM-based answer generation, multi-source ingestion, formal retrieval evaluation, relevance thresholds, and the application interface remain future work. Features and performance claims will be documented after implementation and testing.
+
+## Hybrid Retrieval: Exact CVE Lookup + Semantic Search
+
+### Problem
+
+Initially, the system relied exclusively on semantic similarity to retrieve documents from ChromaDB. This worked for descriptive queries but did not reliably retrieve the requested vulnerability when a query explicitly contained a CVE identifier.
+
+For example, the query `Does CVE-2017-1000486 describe a remote code execution vulnerability?` failed to retrieve the target CVE in the top five results, despite the document existing in the collection.
+
+### Investigation
+
+A diagnostic script compared the target document's stored embedding with a freshly generated embedding from the same Ollama model, `nomic-embed-text`. Their cosine distance was `0.00000000`, indicating that the embeddings matched.
+
+The target CVE ranked first when the query closely matched its descriptive content, but not when the query combined the CVE identifier with a natural-language question.
+
+This indicated that semantic similarity alone was insufficient for reliably resolving explicit vulnerability identifiers.
+
+### Solution
+
+The retrieval pipeline was updated to use a hybrid approach:
+
+1. **CVE identifier detection:** A regular expression detects identifiers such as `CVE-2017-1000486` in the user's query.
+2. **Exact lookup:** ChromaDB is queried using the supported document ID formats for NVD and CISA KEV. A metadata lookup is also used as a fallback.
+3. **Semantic retrieval:** The query is embedded using `nomic-embed-text`, and ChromaDB returns up to `TOP_K` semantically similar documents.
+4. **Result combination:** Exact matches are placed first, followed by semantic results. Duplicate document IDs are removed.
+
+### Query behaviour
+
+- **Query containing a CVE ID:** Exact lookup is performed, followed by semantic search. The exact match is prioritized, and duplicate results are removed.
+- **Query without a CVE ID:** The system uses semantic search only, preserving the original retrieval behaviour.
+
+`TOP_K` currently limits the number of semantic results, not the total number of combined results.
+
+### Validation
+
+The updated retrieval pipeline was manually tested with:
+
+- A query explicitly containing `CVE-2017-1000486`.
+- A natural-language query about vulnerabilities affecting PrimeFaces.
+
+The target CVE was successfully retrieved first in the exact-identifier case, while the descriptive query continued to return semantic results.
+
+### Design rationale
+
+CVE identifiers are structured keys, whereas embeddings represent semantic similarity. Combining exact lookup with vector search makes retrieval more reliable for known vulnerabilities without sacrificing the ability to discover related documents through natural language.
+
+### Current limitation
+
+Retrieving a document does not by itself guarantee that a generated answer will be correct or fully supported by the evidence. Grounded answer generation, source citations, insufficient-evidence handling, and systematic evaluation remain separate tasks in the project roadmap.
